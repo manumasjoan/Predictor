@@ -1,0 +1,314 @@
+---
+title: "Análisis de predicción de eventos cardíacos"
+author: "Manuela Masjoan, Rocio Navarro y Stefania Poracchia"
+date: "5/21/2020"
+output:
+  prettydoc::html_pretty:
+    theme: leonids
+    highlight: github
+    toc: yes # Tabla de contenidos
+    toc_depth: 2 # profundidad de tabla de contenidos
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r importing the dataset, echo = FALSE, message= FALSE}
+library(readr)
+dataset <- read_csv("~/Desktop/Predictor/dataset.csv")
+library(ggplot2)
+library(plotly)
+library(kableExtra)
+library(corrplot)
+library(ROCR)
+```
+
+## Introducción
+Para el desarrollo de este reporte, se utilizó un dataset proporcionado por el servicio de Cardiología del Hospital Austral, con el propósito de analizar los datos de 1000 pacientes muestra que ingresaron a la guardia, y decidir así, si internar o no a un nuevo paciente. Se trata de un dataset con variables en su mayoría binarias, sin datos faltantes, que posee información tal como el género, la edad, presencia de problemas coronarios, cantidad de episodios previos, presencia de hipertensión y otras patologías que presenten alguna correlación.
+
+## Análisis de los datos
+
+#### Eventos según género y edad
+
+ 
+```{r Grafico distribución de pacientes con eventos según edad y género, echo = FALSE, message= FALSE}
+
+Género<-c(dataset$Género)
+Género<-factor(Género,levels=c(0,1), labels=c("Mujeres","Hombres"))
+
+porEdades<-data.frame(dataset$Evento,dataset$Edad,Género)
+df1<-data.frame(subset(porEdades,porEdades$dataset.Evento==1))
+ggplot(data=df1,aes(dataset.Edad, fill=Género))+
+  geom_density(alpha=0.5)+
+  labs(x="Edad",y=" ",title="Distribución de pacientes con eventos según edad y género")+theme(plot.title = element_text(size = 17))+scale_y_continuous(labels = NULL)
+```
+
+
+**No se observan casos de pacientes con presencia de problemas coronarios antes de los 30 años.**
+Las mujeres tienden a presentar problemas coronarios principalmente entre los 60 y 80 años mientras que los hombres entre los 50 y 75.
+
+
+#### Eventos según el género
+
+```{r Grafico distribucion eventos y obesidad por sexo, echo = FALSE}
+
+
+eventosMujeres <- sum(dataset$Evento & dataset$Género==0)/ sum(dataset$Evento)
+
+eventosHombres <- sum(dataset$Evento & dataset$Género==1)/ sum(dataset$Evento)
+
+porcentajes <- as.numeric(round(((c(eventosMujeres, eventosHombres)))*100,2))
+
+etiquetas <- c("Mujeres con eventos", "Hombres con eventos")
+
+etiquetas <- paste(etiquetas, porcentajes)
+
+etiquetas <- paste(etiquetas, "%", sep = "")
+
+pie(porcentajes, etiquetas, col = c("#fe6d73", "#3dccc7"),
+    main = "Gráfico de distribución de eventos por sexo")
+```
+
+
+Se observa que aproximadamente un **80% de los pacientes con problemas coronarios son hombres.**
+
+
+#### Eventos según el tipo de dolor
+Se analiza el porcentaje de pacientes con eventos que presentan dolor actualmente y las características de los mismos.
+
+
+```{r Tabla de porcentaje de pacientes con PDA en aquellos con eventos, echo = FALSE,message= FALSE}
+PDA<-sum(dataset$Evento==1 & dataset$PDA==1 )/ sum(dataset$Evento==1)
+porcentajePDA<-as.numeric(round(((PDA)*100),2))
+porcentajeNoPDA<-as.numeric(round(((1-PDA)*100),2))
+
+df <- data.frame(Dolor=c("Presenta","No presenta"), Porcentaje=c(porcentajePDA,porcentajeNoPDA))
+
+kable(df) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F, position = "float_left")%>%
+row_spec(0,background="gray")%>%row_spec(1,background="light gray")%>%row_spec(2,background="light gray")
+
+```
+
+```{r Grafico frecuencia de eventos y dolor segun el tipo, echo = FALSE}
+# 63% tuvo un evento y tiene dolor opresivo
+eventoYDolorOpresivo <- sum(dataset$Evento & dataset$CD==1)/ sum(dataset$Evento)
+
+# 26% tuvo un evento y tiene dolor punzante
+eventoYDolorPunzante <- sum(dataset$Evento & dataset$CD==-1)/ sum(dataset$Evento)
+
+# 11% tuvo un evento y tiene otro tipo de dolor 
+eventoYOtroDolor <- sum(dataset$Evento & dataset$CD==0)/ sum(dataset$Evento)
+
+c <- c(eventoYDolorOpresivo, eventoYDolorPunzante, eventoYOtroDolor)
+
+data <- as.matrix(data.frame("Opresivo"= c(eventoYDolorOpresivo, 1-eventoYDolorOpresivo),
+                             "Punzante"= c(eventoYDolorPunzante, 1-eventoYDolorPunzante), 
+                             "Otro"= c(eventoYOtroDolor, 1-eventoYOtroDolor)))
+
+
+grafico3 <- barplot(data, col = c("#fe6d73", "grey"), beside = TRUE, 
+                    legend = c("Con evento y dolor", "Sin evento y dolor"), 
+                    main="Frecuencia de dolores en eventos", xlab="Tipos de dolor")
+
+```
+
+Observamos que el tipo de dolor del paciente se relaciona con la presencia de un evento cardíaco.Esto se debe a que **quienes manifiestan tener un dolor opresivo tienen mayor frecuencia de eventos** en comparación a pacientes con otro tipo de dolor.
+
+
+
+#### Eventos en pacientes con dislipemia
+Se analiza el porcentaje de pacientes con eventos que presenta dislipemia y la cantidad de episodios los mismos.
+
+```{r Tabla de porcentaje de pacientes con DLP en aquellos con eventos, echo = FALSE, message= FALSE}
+DLP<-sum(dataset$Evento==1 & dataset$DLP==1 )/ sum(dataset$Evento==1)
+NoDLP<-sum(dataset$Evento==1 & dataset$DLP==0 )/ sum(dataset$Evento==1)
+porcentajeDLP<-as.numeric(round(((DLP)*100),2))
+porcentajeNoDLP<-as.numeric(round(((NoDLP)*100),2))
+
+df <- data.frame(Dislipemia=c("Presenta","No presenta"), Porcentaje=c(porcentajeDLP,porcentajeNoDLP))
+
+kable(df) %>%
+    kable_styling(bootstrap_options = "striped", full_width = F, position = "float_left")%>%
+row_spec(0,background="gray")%>%row_spec(1,background="light gray")%>%row_spec(2,background="light gray")
+
+```
+
+
+
+
+```{r Grafico distribucion de eventos de dislipemia, echo = FALSE, message= FALSE}
+
+#Grafico de barras- de la gente con dislipemia cuantos tienen mas de 
+#un evento y cuantos menos. y de los que no tienen dislipemia?
+
+poseeDisYMasdeUnEvento <- sum(dataset$CantE==1 & dataset$DLP==1 )/ sum(dataset$DLP==1)
+#poseeDisYMasdeUnEvento
+noPoseeDisYsiMasdeUnEvento <- sum(dataset$CantE==1 & dataset$DLP==0 )/ sum(dataset$DLP==0)
+#noPoseeDisYsiMasdeUnEvento
+
+df2 <- data.frame(Episodios=rep(c("Uno", "Más de uno"), each=2),
+                  dose=rep(c("Posee dislipemia", "No posee dislipemia"),2),
+                  len=c((1-poseeDisYMasdeUnEvento)*100, (1-noPoseeDisYsiMasdeUnEvento)*100, poseeDisYMasdeUnEvento*100, noPoseeDisYsiMasdeUnEvento*100))
+
+#head(df2)
+
+ggplot(data=df2, aes(x=dose, y=len, fill=Episodios)) +
+  geom_bar(stat="identity")+
+    ggtitle("Distribución de episodios para dislipemia") + labs(x="", y="Porcentaje")+ scale_fill_manual(values=c("#fe6d73", "#3dccc7"))+theme(plot.title = element_text(size = 15))
+```
+
+Al comparar los grupos en términos de dislipemia podemos observar que **el grupo que padece la enfermedad, en su mayoría, tuvo más de un episodio.** Mientras que para aquellos que no la padecen, aproximadamente la mitad tuvo un único episodio y la otra mitad más de uno. 
+
+#### Incidencia de variables para casos de Hipertensión
+
+Siendo la hipertensión el síntoma más comun presente entre aquellos pacientes con eventos, se decició lograr un gráfico que permita observar que otras variables del dataset estan relacionadas en mayor medida con ella.
+
+```{r Grafico de incidencia de variables para casos de Hipertensión, echo = FALSE, message= FALSE}
+#Grafico de puntos- Distribucion de porcentajes de incidencia de cada cualidad
+
+mujConMR<- sum(dataset$Género==0 & dataset$HTA==1 & dataset$MR==-1) / sum(dataset$Género==0 & dataset$HTA==1)
+mujConDLP<- sum(dataset$Género==0 & dataset$HTA==1 & dataset$DLP==1) / sum(dataset$Género==0 & dataset$HTA==1)
+mujConOBES<- sum(dataset$Género==0 & dataset$HTA==1 & dataset$OBES==1) / sum(dataset$Género==0 & dataset$HTA==1)
+mujConDBT<- sum(dataset$Género==0 & dataset$HTA==1 & dataset$DBT==1) / sum(dataset$Género==0 & dataset$HTA==1)
+mujConAHF<- sum(dataset$Género==0 & dataset$HTA==1 & dataset$AHF==1) / sum(dataset$Género==0 & dataset$HTA==1)
+
+homConMR<- sum(dataset$Género==1 & dataset$HTA==1 & dataset$MR==-1) / sum(dataset$Género==1 & dataset$HTA==1)
+homConDLP<- sum(dataset$Género==1 & dataset$HTA==1 & dataset$DLP==1) / sum(dataset$Género==1 & dataset$HTA==1)
+homConOBES<- sum(dataset$Género==1 & dataset$HTA==1 & dataset$OBES==1) / sum(dataset$Género==1 & dataset$HTA==1)
+homConDBT<- sum(dataset$Género==1 & dataset$HTA==1 & dataset$DBT==1) / sum(dataset$Género==1 & dataset$HTA==1)
+homConAHF<- sum(dataset$Género==1 & dataset$HTA==1 & dataset$AHF==1) / sum(dataset$Género==1 & dataset$HTA==1)
+
+
+df4 <- data.frame(Género=factor(c("Mujeres","Mujeres","Mujeres","Mujeres","Mujeres","Hombres", "Hombres","Hombres", "Hombres", "Hombres")),fumadores = factor(c("Respiración Posición","Nivel de Lipidos", "Obesidad", "Diabetico", "Antecedentes Familiares","Respiración Posición","Nivel de Lipidos", "Obesidad", "Diabetico", "Antecedentes Familiares"), levels=c("Respiración Posición","Nivel de Lipidos", "Obesidad", "Diabetico", "Antecedentes Familiares")),percentage=c(mujConMR,mujConDLP,mujConOBES,mujConDBT,mujConAHF,homConMR,homConDLP,homConOBES,homConDBT,homConAHF))
+
+DF4colour <- c("#3dccc7", "#fe6d73")
+
+ggplot(data=df4, aes(x=fumadores, y=percentage, group=Género, colour=Género)) +
+    
+    geom_point(size=6)+
+    ggtitle("") + labs(x="", y="Porcentaje") + scale_colour_manual(values=DF4colour) +theme_bw()+theme(plot.title = element_text(size = 17)) + theme(axis.text=element_text(size=8))
+
+```
+
+Podemos observar que la variable modificación posicion de respiración afecta en mayor medida a las mujeres con hipertensión que a los hombres que tambien la padecen. A su vez, los niveles de lipidos impactan en mayor medida a los hombres hipertensos, y con respecto a los antecedentes familiares, si bien no presentan tanta correlación con esta patología, se dan en igual proporción para ambos sexos.
+
+
+#### Síndrome coronario agudo previo o historia de revascularización en pacientes con eventos 
+
+
+```{r Grafico de SCA en pacientes con eventos según la edad, echo = FALSE, message= FALSE}
+
+#61% de los mayores de 65 que presentan problemas coronarios tienen SCA
+mayoresDe65ConEySCA<-sum(dataset$Evento==1 &dataset$Edad>65&dataset$SCApHR==1)/sum(dataset$Edad>65&dataset$Evento==1)
+menoresDe65ConEySCA<-sum(dataset$Evento==1 &dataset$Edad<=65&dataset$SCApHR==1)/sum(dataset$Edad<=65&dataset$Evento==1)
+df3<-data.frame("Menores de 65"=c(menoresDe65ConEySCA,1-menoresDe65ConEySCA),"Mayores de 65"=c(mayoresDe65ConEySCA,1-mayoresDe65ConEySCA))
+data <- as.matrix(df3)
+colnames(data) <- c("Menores de 65","Mayores de 65")
+rownames(data) <- c("Presenta","No presenta")
+
+
+barplot(data, col = c("#fe6d73", "#3dccc7"), border="white", 
+legend = c("Presenta","No presenta"), 
+main="Presencia de SCA previo o historia de revascularización
+        en pacientes con eventos")
+
+```
+
+Se observa que aproximadamente un **60% de los pacientes mayores de 65 con eventos coronarios presentan un síndrome coronario agudo previo o historia de revascularización**, a diferencia de aquellos pacientes con eventos menores a 65 donde este porcentaje se aproxima al 23%.
+
+## Predictor
+
+
+### Selección de variables
+
+#### Correlación de los datos
+
+El siguiente gráfico muestra la correlación entre las variables del dataset.Se pueden distinguir zonas más oscuras que representan mayor correlación entre las variables. 
+
+```{r corrplot, echo = FALSE, message= FALSE}
+corrplot(cor(dataset), method= 'color')
+
+```
+
+
+#### Segunda preseleccion
+
+A su vez utilizamos otro método que selecciona las variables que tienen mayor repercusión a la hora de tener un evento. Este metodo genera una tabla con una lista de variables ordenadas segun el valor de dispersion (desvío) propio de cada una. Decidimos elegir aquellas de menor desvio para formar parte de la preselección. 
+
+
+#### Selección final
+
+Teniendo en cuenta los métodos previos y el análisis realizado anteriormente decidimos tener en cuenta las siguientes variables a la hora de realizar la predicción:
+
+
+- Edad
+- Género
+- Hipertensión
+- Dislipemia
+- SCA previo o historia de revascularización 
+- Mismo dolor evento previo
+- Diabético
+- Fumador
+- Obesidad
+- Presenta dolor actual
+- Modifica respiración pocisión
+- Características del dolor
+
+### Modelo de predicción
+
+Se utilizó un modelo de regresión logística para predecir si un paciente va presentar o no problemas coronarios. Se separaron los datos del dataset de tal manera que 70% se utilizaron para generar el modelo de predicción mientras que el restante para probar la calidad del mismo.
+
+#### Calidad del modelo
+
+Para evaluar la calidad del modelo se utilizó la curva AUROC. Ella nos proporcionó este resultado:
+  
+```{r predicción, echo = FALSE, message= FALSE}
+data<-dataset
+
+dt = sort(sample(nrow(data), nrow(data)*.7))
+train<-data[dt,]
+test<-data[-dt,]
+
+
+
+Evento.out <- glm(Evento~Edad+Género+HTA+DLP+SCApHR+MDEP+DBT+TBQ+OBES+PDA+MR+CD,
+               data=train, family="binomial")
+
+
+predsAll<-predict(Evento.out, type = "response",test)
+
+
+outcomeName<-'Evento'
+
+#función para graficar la curva AUROC
+
+plotROC <- function(pred){
+  perf<- performance(pred,"tpr","fpr")
+  plot(perf)
+  AUC<-performance(pred,"auc")@y.values[[1]]
+  grid()
+  text(.6,.2,sprintf("AUC=%0.3f", AUC))
+  abline(0,1,col="red", lty = 2)
+}
+
+
+
+predaux<-prediction(as.numeric(predsAll),test[,outcomeName])
+
+perf <- performance(predaux, "auc")
+#perf@y.values[[1]]
+
+plotROC(predaux)
+
+```
+
+
+
+
+Mails:
+ 
+- manuela.masjoan@ing.austral.edu.ar
+- rocio.navarro@ing.austral.edu.ar
+- stefania.poracchia@ing.austral.edu.ar
